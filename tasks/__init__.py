@@ -1,6 +1,7 @@
 from invoke import task
 from invoke.exceptions import UnexpectedExit
 from os import path as osp
+from subprocess import list2cmdline
 import os
 
 
@@ -33,3 +34,26 @@ def install_dncli(ctx):
 @task
 def update_dncli(ctx):
     ctx.run('curl https://darknode.republicprotocol.com/update.sh -sSf | sh')
+
+
+@task
+def up(ctx):
+    ctx.run(list2cmdline([
+        'darknode', 'up',
+        '--network', 'testnet',
+        '--name', 'darknode2',
+        '--tags', 'darknode2',
+        '--aws',
+        '--aws-region', 'eu-west-2',
+    ]))
+
+
+@task
+def down(ctx):
+    ctx.run(list2cmdline([
+        'darknode', 'down',
+        '--name', 'darknode2',
+        '--tags', 'darknode2',
+        '--aws',
+        '--aws-region', 'eu-west-2',
+    ]))
