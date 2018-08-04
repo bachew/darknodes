@@ -3,17 +3,23 @@ from invoke.exceptions import UnexpectedExit
 from os import path as osp
 from subprocess import list2cmdline
 import os
+import tempfile
 
 
 @task
 def init(ctx):
+    install_darknode_cli(ctx)
+
+
+@task
+def install_darknode_cli(ctx):
     try:
         ctx.run('darknode --version')
     except UnexpectedExit:
-        install_dncli(ctx)
+        ctx.run('curl https://darknode.republicprotocol.com/install.sh -sSf | sh')
         add_dncli_path()
     else:
-        update_dncli(ctx)
+        ctx.run('curl https://darknode.republicprotocol.com/update.sh -sSf | sh')
 
 
 def add_dncli_path():
@@ -21,19 +27,42 @@ def add_dncli_path():
     cli_path = osp.expanduser('~/.darknode/bin')
 
     if cli_path not in paths:
-        print('add!')
         paths.append(cli_path)
         os.environ['PATH'] = os.pathsep.join(paths)
 
 
 @task
-def install_dncli(ctx):
-    ctx.run('curl https://darknode.republicprotocol.com/install.sh -sSf | sh')
+def backup(ctx, file):
+    temp_dir = tempfile.mkdtemp(prefix='.darknode-', dir='/dev/shm')
+    try:
+        rsync(ctx, '~/.darknode', temp_dir)
+    finally:
+        ctx.run(list2cmdline(['rm', '-rf', temp_dir]))
 
 
 @task
-def update_dncli(ctx):
-    ctx.run('curl https://darknode.republicprotocol.com/update.sh -sSf | sh')
+def restore(ctx, file):
+    pass
+
+
+def rsync(ctx, src, dest):
+    def end_slash(path):
+        return path if path.endswith('/') else path + '/'
+
+    cmd = ['rsync', '-av']
+
+    excludes = [
+        '.terraform',
+        '/bin/',
+        '/darknode-setup',
+        '/gen-config',
+    ]
+
+    for exclude in excludes:
+        cmd.append('--exclude={}'.format(exclude))
+
+    cmd.extend([end_slash(src), end_slash(dest)])
+    ctx.run(list2cmdline(cmd))
 
 
 @task
