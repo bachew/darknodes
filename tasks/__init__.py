@@ -32,36 +32,45 @@ def add_dncli_path():
 
 
 @task
-def backup(ctx, file):
-    temp_dir = tempfile.mkdtemp(prefix='.darknode-', dir='/dev/shm')
-    try:
-        rsync(ctx, '~/.darknode', temp_dir)
-    finally:
-        ctx.run(list2cmdline(['rm', '-rf', temp_dir]))
-
-
-@task
-def restore(ctx, file):
-    pass
-
-
-def rsync(ctx, src, dest):
-    def end_slash(path):
-        return path if path.endswith('/') else path + '/'
-
-    cmd = ['rsync', '-av']
-
-    excludes = [
+def backup(ctx, backup_file=None):  # TODO: default backup_file
+    memory_dir = '/dev/shm'
+    temp_dir = memory_dir if osp.isdir(memory_dir) else None
+    backup_dir = tempfile.mkdtemp(prefix='ink-', dir=temp_dir)  # TODO: ink?
+    darknode_excludes = [
         '.terraform',
         '/bin/',
         '/darknode-setup',
         '/gen-config',
     ]
+    try:
+        rsync(ctx, '~/.darknode/',
+              osp.join(backup_dir, 'darknode/'),
+              excludes=darknode_excludes)
+        rsync(ctx, '~/.aws/', osp.join(backup_dir, 'aws/'))
+        ctx.run(list2cmdline(['find', backup_dir]))  # TESTING
+    finally:
+        ctx.run(list2cmdline(['rm', '-rf', backup_dir]))
+
+
+@task
+def restore(ctx, backup_file=None):
+    pass
+
+
+def rsync(ctx, src, dest, excludes=[]):
+    src = osp.expanduser(src)
+    dest = osp.expanduser(dest)
+
+    if not osp.exists(src):
+        print('{!r} does not exist, not rsyncing it'.format(src))
+        return
+
+    cmd = ['rsync', '-av']
 
     for exclude in excludes:
         cmd.append('--exclude={}'.format(exclude))
 
-    cmd.extend([end_slash(src), end_slash(dest)])
+    cmd += [src, dest]
     ctx.run(list2cmdline(cmd))
 
 
