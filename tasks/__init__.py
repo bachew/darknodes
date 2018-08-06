@@ -1,7 +1,8 @@
+from contextlib import contextmanager
 from invoke import task
 from invoke.exceptions import UnexpectedExit
 from os import path as osp
-from subprocess import list2cmdline
+from subprocess import list2cmdline as cmdline
 import os
 import tempfile
 
@@ -32,29 +33,42 @@ def add_dncli_path():
 
 
 @task
-def backup(ctx, backup_file=None):  # TODO: default backup_file
-    memory_dir = '/dev/shm'
-    temp_dir = memory_dir if osp.isdir(memory_dir) else None
-    backup_dir = tempfile.mkdtemp(prefix='ink-', dir=temp_dir)  # TODO: ink?
+def backup(ctx, backup_file):
     darknode_excludes = [
         '.terraform',
         '/bin/',
         '/darknode-setup',
         '/gen-config',
     ]
-    try:
+    with new_secure_dir(ctx) as backup_dir:
         rsync(ctx, '~/.darknode/',
               osp.join(backup_dir, 'darknode/'),
               excludes=darknode_excludes)
         rsync(ctx, '~/.aws/', osp.join(backup_dir, 'aws/'))
-        ctx.run(list2cmdline(['find', backup_dir]))  # TESTING
-    finally:
-        ctx.run(list2cmdline(['rm', '-rf', backup_dir]))
+        compress(ctx, backup_dir, backup_file)
+
+    # Option to delete secret data
 
 
 @task
-def restore(ctx, backup_file=None):
-    pass
+def restore(ctx, backup_file):
+    with new_secure_dir(ctx) as backup_dir:
+        extract(ctx, backup_file, backup_dir)
+        # TESTING: ~ -> /dev/shm/home
+        rsync(ctx, osp.join(backup_dir, 'darknode/'), '/dev/shm/home/.darknode/')
+        rsync(ctx, osp.join(backup_dir, 'aws/'), '/dev/shm/home/.aws')
+
+
+@contextmanager
+def new_secure_dir(ctx):
+    memory_dir = '/dev/shm'
+    temp_dir = memory_dir if osp.isdir(memory_dir) else None
+    backup_dir = tempfile.mkdtemp(prefix='ink-', dir=temp_dir)  # TODO: ink?
+
+    try:
+        yield backup_dir
+    finally:
+        ctx.run(cmdline(['rm', '-rf', backup_dir]))
 
 
 def rsync(ctx, src, dest, excludes=[]):
@@ -71,12 +85,50 @@ def rsync(ctx, src, dest, excludes=[]):
         cmd.append('--exclude={}'.format(exclude))
 
     cmd += [src, dest]
-    ctx.run(list2cmdline(cmd))
+    ctx.run(cmdline(cmd))
+
+
+@task
+def compress(ctx, src_dir, dest_file):
+    with new_secure_dir(ctx) as temp_dir:
+        archive_file = osp.abspath(osp.join(temp_dir, osp.basename(dest_file) + '.tar'))
+
+        with ctx.cd(src_dir):
+            ctx.run(cmdline(['tar', '-czf', archive_file, '*']))
+
+        encrypt(ctx, archive_file, dest_file)
+
+
+@task
+def extract(ctx, src_file, dest_dir):
+    with new_secure_dir(ctx) as temp_dir:
+        archive_file = osp.abspath(osp.join(temp_dir, osp.basename(src_file) + '.tar'))
+        decrypt(ctx, src_file, archive_file)
+
+        if not osp.exists(dest_dir):
+            ctx.run(cmdline(['mkdir', '-p', dest_dir]))
+
+        ctx.run(cmdline(['tar', '-C', dest_dir, '-xzf', archive_file]))
+
+
+@task
+def encrypt(ctx, plain_file, cipher_file):
+    ctx.run(cmdline([
+        'gpg', '--cipher-algo', 'AES256',
+        '-c',
+        '-o', cipher_file,
+        plain_file
+    ]))
+
+
+@task
+def decrypt(ctx, cipher_file, plain_file):
+    ctx.run(cmdline(['gpg', '-o', plain_file, cipher_file]))
 
 
 @task
 def up(ctx):
-    ctx.run(list2cmdline([
+    ctx.run(cmdline([
         'darknode', 'up',
         '--network', 'testnet',
         '--name', 'darknode2',
@@ -88,7 +140,7 @@ def up(ctx):
 
 @task
 def down(ctx):
-    ctx.run(list2cmdline([
+    ctx.run(cmdline([
         'darknode', 'down',
         '--name', 'darknode2',
         '--tags', 'darknode2',
