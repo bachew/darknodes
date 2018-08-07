@@ -29,7 +29,7 @@ def backup(ctx, backup_file):
     '''
     Backup darknodes and credentials to <backup-file>
     '''
-    os.stat(osp.dirname(backup_file))  # validate dir
+    os.stat(osp.dirname(osp.abspath(backup_file)))  # validate dir
     darknode_excludes = [
         '.terraform',
         '/bin/',
@@ -51,15 +51,16 @@ def restore(ctx, backup_file):
     '''
     Restore darknodes and credentials from <backup-file>
     '''
+    install_darknode_cli(ctx)
+
     with new_secure_dir(ctx) as backup_dir:
         decrypt_extract(ctx, backup_file, backup_dir)
         rsync(ctx, osp.join(backup_dir, 'darknode/'), '~/.darknode/')
         rsync(ctx, osp.join(backup_dir, 'aws/'), '~/.aws')
 
-    install_darknode_cli(ctx)
-    terraform_init(ctx, '~/.darknode')
+    terraform_init(ctx, osp.expanduser('~/.darknode'))
 
-    darknodes_dir = '~/.darknode/darknodes'
+    darknodes_dir = osp.expanduser('~/.darknode/darknodes')
 
     if osp.exists(darknodes_dir):
         for name in os.listdir(darknodes_dir):
@@ -67,8 +68,8 @@ def restore(ctx, backup_file):
 
 
 def terraform_init(ctx, dirname):
-    with ctx.cd(dirname):
-        if not osp.exists('.terraform') and glob('*.tf'):
+    if not osp.exists(osp.join(dirname, '.terraform')) and glob(osp.join(dirname, '*.tf')):
+        with ctx.cd(dirname):
             ctx.run(cmdline([darknode_bin('terraform'), 'init']))
 
 

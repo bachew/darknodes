@@ -8,3 +8,4 @@ invoke = ">=1.0.0"
 
 [dev-packages]
 twine = "*"
+wheel = "*"

@@ -2,12 +2,12 @@ from invoke import task
 from subprocess import list2cmdline as cmdline
 
 
-default_repo_url = 'https://pypi.org/legacy/'
+default_repo_url = 'https://upload.pypi.org/legacy/'
 
 
 @task
 def init(ctx):
-    pass
+    ctx.run('pip install -e .')
 
 
 @task
