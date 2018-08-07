@@ -1,2 +1,3 @@
-# darknodes
-Convenient tools for managing Republic Protocol darknodes
+# Inkbot
+
+[Invoke](http://www.pyinvoke.org/) tasks and CLI to backup and restore darknodes.
