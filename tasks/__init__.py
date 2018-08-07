@@ -6,6 +6,11 @@ default_repo_url = 'https://pypi.org/legacy/'
 
 
 @task
+def init(ctx):
+    pass
+
+
+@task
 def build(ctx):
     ctx.run('python setup.py build bdist_wheel')
 

@@ -1,6 +1,6 @@
 from contextlib import contextmanager
+from glob import glob
 from invoke import task
-from invoke.exceptions import UnexpectedExit
 from os import path as osp
 from subprocess import list2cmdline as cmdline
 import os
@@ -8,32 +8,28 @@ import tempfile
 
 
 @task
-def init(ctx):
-    install_darknode_cli(ctx)
-
-
-@task
-def install_darknode_cli(ctx):
-    try:
-        ctx.run('darknode --version')
-    except UnexpectedExit:
+def install_darknode_cli(ctx, upgrade=False):
+    '''
+    Install darknode-cli it's not installed
+    '''
+    if not osp.exists(darknode_bin()):
         ctx.run('curl https://darknode.republicprotocol.com/install.sh -sSf | sh')
-        add_dncli_path()
-    else:
+        return
+
+    if upgrade:
         ctx.run('curl https://darknode.republicprotocol.com/update.sh -sSf | sh')
 
 
-def add_dncli_path():
-    paths = os.environ['PATH'].split(os.pathsep)
-    cli_path = osp.expanduser('~/.darknode/bin')
-
-    if cli_path not in paths:
-        paths.append(cli_path)
-        os.environ['PATH'] = os.pathsep.join(paths)
+def darknode_bin(name='darknode'):
+    return osp.join(osp.expanduser('~/.darknode/bin'), name)
 
 
 @task
 def backup(ctx, backup_file):
+    '''
+    Backup darknodes and credentials to <backup-file>
+    '''
+    os.stat(osp.dirname(backup_file))  # validate dir
     darknode_excludes = [
         '.terraform',
         '/bin/',
@@ -44,7 +40,7 @@ def backup(ctx, backup_file):
         rsync(ctx, '~/.darknode/',
               osp.join(backup_dir, 'darknode/'),
               excludes=darknode_excludes)
-        rsync(ctx, '~/.aws/credentials', osp.join(backup_dir, 'aws/'))
+        rsync(ctx, '~/.aws/', osp.join(backup_dir, 'aws/'))
         archive_encrypt(ctx, backup_dir, backup_file)
 
     # Option to delete secret data
@@ -52,18 +48,35 @@ def backup(ctx, backup_file):
 
 @task
 def restore(ctx, backup_file):
+    '''
+    Restore darknodes and credentials from <backup-file>
+    '''
     with new_secure_dir(ctx) as backup_dir:
         decrypt_extract(ctx, backup_file, backup_dir)
-        # TESTING: ~ -> /dev/shm/home
-        rsync(ctx, osp.join(backup_dir, 'darknode/'), '/dev/shm/home/.darknode/')
-        rsync(ctx, osp.join(backup_dir, 'aws/'), '/dev/shm/home/.aws')
+        rsync(ctx, osp.join(backup_dir, 'darknode/'), '~/.darknode/')
+        rsync(ctx, osp.join(backup_dir, 'aws/'), '~/.aws')
+
+    install_darknode_cli(ctx)
+    terraform_init(ctx, '~/.darknode')
+
+    darknodes_dir = '~/.darknode/darknodes'
+
+    if osp.exists(darknodes_dir):
+        for name in os.listdir(darknodes_dir):
+            terraform_init(ctx, osp.join(darknodes_dir, name))
+
+
+def terraform_init(ctx, dirname):
+    with ctx.cd(dirname):
+        if not osp.exists('.terraform') and glob('*.tf'):
+            ctx.run(cmdline([darknode_bin('terraform'), 'init']))
 
 
 @contextmanager
 def new_secure_dir(ctx):
     memory_dir = '/dev/shm'
     temp_dir = memory_dir if osp.isdir(memory_dir) else None
-    backup_dir = tempfile.mkdtemp(prefix='ink-', dir=temp_dir)  # TODO: ink?
+    backup_dir = tempfile.mkdtemp(prefix='inkbot-', suffix='.bak', dir=temp_dir)
 
     try:
         yield backup_dir
@@ -79,7 +92,7 @@ def rsync(ctx, src, dest, excludes=[]):
         print('{!r} does not exist, not rsyncing it'.format(src))
         return
 
-    cmd = ['rsync', '-av']
+    cmd = ['rsync', '-a']
 
     for exclude in excludes:
         cmd.append('--exclude={}'.format(exclude))
@@ -91,7 +104,7 @@ def rsync(ctx, src, dest, excludes=[]):
 @task
 def archive_encrypt(ctx, src_dir, dest_file):
     '''
-    Archive <src-dir> into tar file and encrypt it to <dest-file>.
+    Archive <src-dir> into tar file and encrypt it to <dest-file>
     '''
     with new_secure_dir(ctx) as temp_dir:
         archive_file = osp.abspath(osp.join(temp_dir, osp.basename(dest_file) + '.tar'))
@@ -105,7 +118,7 @@ def archive_encrypt(ctx, src_dir, dest_file):
 @task
 def decrypt_extract(ctx, src_file, dest_dir):
     '''
-    Decrypt <src-file> to a tar file and extract it to <dest-dir>.
+    Decrypt <src-file> to a tar file and extract it to <dest-dir>
     '''
     with new_secure_dir(ctx) as temp_dir:
         archive_file = osp.abspath(osp.join(temp_dir, osp.basename(src_file) + '.tar'))
@@ -120,7 +133,7 @@ def decrypt_extract(ctx, src_file, dest_dir):
 @task
 def encrypt(ctx, plain_file, cipher_file):
     '''
-    Encrypt <plain-file> to <cipher-file>.
+    Encrypt <plain-file> to <cipher-file>
     '''
     ctx.run(cmdline([
         'gpg', '--cipher-algo', 'AES256',
@@ -133,6 +146,6 @@ def encrypt(ctx, plain_file, cipher_file):
 @task
 def decrypt(ctx, cipher_file, plain_file):
     '''
-    Decrypt <cipher-file> to <plain-file>.
+    Decrypt <cipher-file> to <plain-file>
     '''
     ctx.run(cmdline(['gpg', '-o', plain_file, cipher_file]))
