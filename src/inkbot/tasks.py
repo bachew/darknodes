@@ -4,6 +4,7 @@ from glob import glob
 from invoke import task
 from os import path as osp
 from subprocess import list2cmdline as cmdline
+import json
 import os
 import re
 import tempfile
@@ -11,7 +12,8 @@ import tempfile
 
 HOME_DIR = osp.expanduser('~')
 HOME_DIR_PLACEHOLDER = '{{ INKBOT_HOME }}'
-DARKNODE_DIR = '~/.darknode'
+DARKNODE_DIR = osp.join(HOME_DIR, '.darknode')
+INKBOT_DIR = osp.join(DARKNODE_DIR, 'inkbot')
 
 
 @task
@@ -35,6 +37,54 @@ def darknode_bin(name='darknode'):
 # them in ~/.inkbot/tokens because we should not expect them to be in
 # ~/.aws/credentials and ~/.config/doctl/config.yaml
 
+@task
+def set_aws_keys(ctx):
+    '''
+    Set AWS access key and secret key that will be used by add command to add darknode
+    '''
+    dct = {
+        'access_key': get_input('AWS access key: '),
+        'secret_key': get_input('AWS secret key: ')
+    }
+    make_inkbot_dir(ctx)
+
+    with open(osp.join(INKBOT_DIR, 'aws.json'), 'w') as fobj:
+        fobj.write(to_json(dct))
+
+
+@task
+def set_do_token(ctx):
+    '''
+    Set Digital Ocean API token that will be used by add command to add darknode
+    '''
+    dct = {
+        'token': get_input('DO token: ')
+    }
+    make_inkbot_dir(ctx)
+
+    with open(osp.join(INKBOT_DIR, 'do.json'), 'w') as fobj:
+        fobj.write(to_json(dct))
+
+
+def make_inkbot_dir(ctx):
+    ctx.run(cmdline(['mkdir', '-p', INKBOT_DIR]), echo=False)
+
+
+def to_json(obj):
+    return json.dumps(obj, indent=2, sort_keys=True)
+
+
+def get_input(prompt):
+    line = None
+
+    while not line:
+        line = input(prompt)
+
+        if not line:
+            print('Please specify a value!')
+
+    return line
+
 
 @task
 def add(ctx, network, provider, region, tag=None, spec=None):
@@ -57,28 +107,43 @@ def add(ctx, network, provider, region, tag=None, spec=None):
         '--network', network
     ]
 
-    if provider == 'aws':
-        cmd += [
-            '--aws',
-            '--aws-region', region,
-            # TODO: --aws-access-key and --aws-secret-key
-        ]
+    with new_temp_dir(ctx) as temp_dir:
+        if provider == 'aws':
+            aws_access_key_file, aws_secret_key_file = get_aws_key_files(temp_dir)
+            cmd += [
+                '--aws',
+                '--aws-region', region,
+                '--aws-access-key', '$(cat {!r})'.format(aws_access_key_file),
+                '--aws-secret-key', '$(cat {!r})'.format(aws_secret_key_file),
+            ]
 
-        if spec:
-            cmd += ['--aws-instance', spec]
-    elif provider == 'do':
-        cmd += [
-            '--do',
-            '--do-region', region,
-            # TODO: --do-token
-        ]
+            if spec:
+                cmd += ['--aws-instance', spec]
+        elif provider == 'do':
+            do_token_file = get_do_token_file(temp_dir)
+            cmd += [
+                '--do',
+                '--do-region', region,
+                '--do-token', '$(cat {!r})'.format(do_token_file),
+            ]
 
-        if spec:
-            cmd += ['--do-droplet', spec]
-    else:
-        raise ValueError("Provider must be either 'aws' or 'do'")
+            if spec:
+                cmd += ['--do-droplet', spec]
+        else:
+            raise ValueError("Provider must be either 'aws' or 'do'")
 
-    print(cmdline(cmd))
+        install_darknode_cli(ctx)
+        ctx.run(cmdline(cmd))
+
+
+def get_aws_key_files(temp_dir):
+    # TODO
+    return osp.join(temp_dir, 'aws-access-key'), osp.join(temp_dir, 'aws-secret-key')
+
+
+def get_do_token_file(temp_dir):
+    # TODO
+    return osp.join(temp_dir, 'do-token')
 
 
 @task
@@ -88,7 +153,7 @@ def backup(ctx, backup_file):
     '''
     os.stat(osp.dirname(osp.abspath(backup_file)))  # validate dir
 
-    with new_secure_dir(ctx) as backup_dir:
+    with new_temp_dir(ctx) as backup_dir:
         excludes = [
             '.terraform',
             '/bin/',
@@ -97,8 +162,8 @@ def backup(ctx, backup_file):
         ]
         rsync(ctx, DARKNODE_DIR + '/', osp.join(backup_dir, 'darknode/'), excludes)
 
-        search_replace(osp.join(backup_dir, 'darknode/main.tf'),
-                       re.escape(HOME_DIR), HOME_DIR_PLACEHOLDER)
+        search_replace_tf(osp.join(backup_dir, 'darknode'),
+                          re.escape(HOME_DIR), HOME_DIR_PLACEHOLDER)
 
         excludes = [
             '/cli',
@@ -108,14 +173,17 @@ def backup(ctx, backup_file):
 
         archive_encrypt(ctx, backup_dir, backup_file)
 
-    # Option to delete secret data
+
+def search_replace_tf(dirname, pattern, repl):
+    for filename in glob(osp.join(dirname, '*.tf')):
+        search_replace(filename, pattern, repl)
+
+    for filename in glob(osp.join(dirname, 'darknodes/*/*.tf')):
+        search_replace(filename, pattern, repl)
 
 
 def search_replace(filename, pattern, repl):
-    if not osp.exists(filename):
-        return
-
-    print('Search and replace {!r}'.format(filename))
+    print('Search and replace {!r}: {}/{}'.format(filename, pattern, repl))
 
     with open(filename) as fobj:
         replaced = re.sub(pattern, repl, fobj.read())
@@ -131,11 +199,11 @@ def restore(ctx, backup_file):
     '''
     install_darknode_cli(ctx)
 
-    with new_secure_dir(ctx) as backup_dir:
+    with new_temp_dir(ctx) as backup_dir:
         decrypt_extract(ctx, backup_file, backup_dir)
 
-        search_replace(osp.join(backup_dir, 'darknode/main.tf'),
-                       re.escape(HOME_DIR_PLACEHOLDER), HOME_DIR)
+        search_replace_tf(osp.join(backup_dir, 'darknode'),
+                          re.escape(HOME_DIR_PLACEHOLDER), HOME_DIR)
 
         rsync(ctx, osp.join(backup_dir, 'darknode/'), DARKNODE_DIR + '/')
         rsync(ctx, osp.join(backup_dir, 'aws/'), '~/.aws')
@@ -156,7 +224,7 @@ def terraform_init(ctx, dirname):
 
 
 @contextmanager
-def new_secure_dir(ctx):
+def new_temp_dir(ctx):
     memory_dir = '/dev/shm'
     temp_dir = memory_dir if osp.isdir(memory_dir) else None
     backup_dir = tempfile.mkdtemp(prefix='inkbot-', suffix='.bak', dir=temp_dir)
@@ -190,7 +258,7 @@ def archive_encrypt(ctx, src_dir, dest_file):
     '''
     Archive <src-dir> into tar file and encrypt it to <dest-file>
     '''
-    with new_secure_dir(ctx) as temp_dir:
+    with new_temp_dir(ctx) as temp_dir:
         archive_file = osp.abspath(osp.join(temp_dir, osp.basename(dest_file) + '.tar'))
 
         with ctx.cd(src_dir):
@@ -204,7 +272,7 @@ def decrypt_extract(ctx, src_file, dest_dir):
     '''
     Decrypt <src-file> to a tar file and extract it to <dest-dir>
     '''
-    with new_secure_dir(ctx) as temp_dir:
+    with new_temp_dir(ctx) as temp_dir:
         archive_file = osp.abspath(osp.join(temp_dir, osp.basename(src_file) + '.tar'))
         decrypt(ctx, src_file, archive_file)
 

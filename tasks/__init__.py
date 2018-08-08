@@ -33,3 +33,12 @@ def deploy(ctx, repo_url=None, username=None, test_repo=False):
 
     cmd.append('dist/*.whl')
     ctx.run(cmdline(cmd))
+
+
+@task
+def test(ctx):
+    ctx.run('mkdir -p tmp')
+    ctx.run('rm -rf tmp/test.bak')
+    ctx.run('inkbot backup tmp/test.bak')
+    ctx.run('rm -rf tmp/test')
+    ctx.run('inkbot decrypt-extract tmp/test.bak tmp/test')
