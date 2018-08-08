@@ -11,7 +11,7 @@ import tempfile
 
 HOME_DIR = osp.expanduser('~')
 HOME_DIR_PLACEHOLDER = '{{ INKBOT_HOME }}'
-# TODO: DARKNODE_DIR = '~/.darknode'
+DARKNODE_DIR = '~/.darknode'
 
 
 @task
@@ -28,24 +28,57 @@ def install_darknode_cli(ctx, update=False):
 
 
 def darknode_bin(name='darknode'):
-    return osp.join(osp.expanduser('~/.darknode/bin'), name)
-
-
-# TODO:
-# @task
-def add(ctx, network, provider, region, instance_type, suffix=None):
-    '''
-    Add a new darknode with name based on parameters
-    '''
-    pass
-    # params = [network, provider, region, instance_type]
-    # if suffix: params.append(suffix)
-    # name = '-'.join(params)
+    return osp.join(DARKNODE_DIR, 'bin', name)
 
 
 # TODO: should have a task for user to set AWS and DO tokens so we can store
 # them in ~/.inkbot/tokens because we should not expect them to be in
 # ~/.aws/credentials and ~/.config/doctl/config.yaml
+
+
+@task
+def add(ctx, network, provider, region, tag=None, spec=None):
+    '''
+    Add a new darknode with name based on parameters
+    '''
+    if network.endswith('net'):
+        short_network = network[:-3]
+    else:
+        short_network = network
+
+    params = [short_network, provider, region]
+
+    if tag:
+        params.append(tag)
+
+    cmd = [
+        darknode_bin(), 'up',
+        '--name', '-'.join(params),
+        '--network', network
+    ]
+
+    if provider == 'aws':
+        cmd += [
+            '--aws',
+            '--aws-region', region,
+            # TODO: --aws-access-key and --aws-secret-key
+        ]
+
+        if spec:
+            cmd += ['--aws-instance', spec]
+    elif provider == 'do':
+        cmd += [
+            '--do',
+            '--do-region', region,
+            # TODO: --do-token
+        ]
+
+        if spec:
+            cmd += ['--do-droplet', spec]
+    else:
+        raise ValueError("Provider must be either 'aws' or 'do'")
+
+    print(cmdline(cmd))
 
 
 @task
@@ -62,7 +95,7 @@ def backup(ctx, backup_file):
             '/darknode-setup',
             '/gen-config',
         ]
-        rsync(ctx, '~/.darknode/', osp.join(backup_dir, 'darknode/'), excludes)
+        rsync(ctx, DARKNODE_DIR + '/', osp.join(backup_dir, 'darknode/'), excludes)
 
         search_replace(osp.join(backup_dir, 'darknode/main.tf'),
                        re.escape(HOME_DIR), HOME_DIR_PLACEHOLDER)
@@ -104,12 +137,12 @@ def restore(ctx, backup_file):
         search_replace(osp.join(backup_dir, 'darknode/main.tf'),
                        re.escape(HOME_DIR_PLACEHOLDER), HOME_DIR)
 
-        rsync(ctx, osp.join(backup_dir, 'darknode/'), '~/.darknode/')
+        rsync(ctx, osp.join(backup_dir, 'darknode/'), DARKNODE_DIR + '/')
         rsync(ctx, osp.join(backup_dir, 'aws/'), '~/.aws')
 
-    terraform_init(ctx, osp.expanduser('~/.darknode'))
+    terraform_init(ctx, DARKNODE_DIR)
 
-    darknodes_dir = osp.expanduser('~/.darknode/darknodes')
+    darknodes_dir = osp.join(DARKNODE_DIR, 'darknodes')
 
     if osp.exists(darknodes_dir):
         for name in os.listdir(darknodes_dir):
