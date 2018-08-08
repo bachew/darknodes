@@ -1,22 +1,28 @@
+# -*- coding: utf-8 -*-
 from contextlib import contextmanager
 from glob import glob
 from invoke import task
 from os import path as osp
 from subprocess import list2cmdline as cmdline
 import os
+import re
 import tempfile
 
 
+HOME_DIR = osp.expanduser('~')
+HOME_DIR_PLACEHOLDER = '{{ INKBOT_HOME }}'
+
+
 @task
-def install_darknode_cli(ctx, upgrade=False):
+def install_darknode_cli(ctx, update=False):
     '''
-    Install darknode-cli it's not installed
+    Install darknode-cli if not already installed
     '''
     if not osp.exists(darknode_bin()):
         ctx.run('curl https://darknode.republicprotocol.com/install.sh -sSf | sh')
         return
 
-    if upgrade:
+    if update:
         ctx.run('curl https://darknode.republicprotocol.com/update.sh -sSf | sh')
 
 
@@ -30,20 +36,41 @@ def backup(ctx, backup_file):
     Backup darknodes and credentials to <backup-file>
     '''
     os.stat(osp.dirname(osp.abspath(backup_file)))  # validate dir
-    darknode_excludes = [
-        '.terraform',
-        '/bin/',
-        '/darknode-setup',
-        '/gen-config',
-    ]
+
     with new_secure_dir(ctx) as backup_dir:
-        rsync(ctx, '~/.darknode/',
-              osp.join(backup_dir, 'darknode/'),
-              excludes=darknode_excludes)
-        rsync(ctx, '~/.aws/', osp.join(backup_dir, 'aws/'))
+        excludes = [
+            '.terraform',
+            '/bin/',
+            '/darknode-setup',
+            '/gen-config',
+        ]
+        rsync(ctx, '~/.darknode/', osp.join(backup_dir, 'darknode/'), excludes)
+
+        search_replace(osp.join(backup_dir, 'darknode/main.tf'),
+                       re.escape(HOME_DIR), HOME_DIR_PLACEHOLDER)
+
+        excludes = [
+            '/cli',
+            'config',
+        ]
+        rsync(ctx, '~/.aws/', osp.join(backup_dir, 'aws/'), excludes)
+
         archive_encrypt(ctx, backup_dir, backup_file)
 
     # Option to delete secret data
+
+
+def search_replace(filename, pattern, repl):
+    if not osp.exists(filename):
+        return
+
+    print('Search and replace {!r}'.format(filename))
+
+    with open(filename) as fobj:
+        replaced = re.sub(pattern, repl, fobj.read())
+
+    with open(filename, 'w') as fobj:
+        fobj.write(replaced)
 
 
 @task
@@ -55,6 +82,10 @@ def restore(ctx, backup_file):
 
     with new_secure_dir(ctx) as backup_dir:
         decrypt_extract(ctx, backup_file, backup_dir)
+
+        search_replace(osp.join(backup_dir, 'darknode/main.tf'),
+                       re.escape(HOME_DIR_PLACEHOLDER), HOME_DIR)
+
         rsync(ctx, osp.join(backup_dir, 'darknode/'), '~/.darknode/')
         rsync(ctx, osp.join(backup_dir, 'aws/'), '~/.aws')
 
@@ -85,7 +116,7 @@ def new_secure_dir(ctx):
         ctx.run(cmdline(['rm', '-rf', backup_dir]))
 
 
-def rsync(ctx, src, dest, excludes=[]):
+def rsync(ctx, src, dest, excludes=None):
     src = osp.expanduser(src)
     dest = osp.expanduser(dest)
 
@@ -93,10 +124,11 @@ def rsync(ctx, src, dest, excludes=[]):
         print('{!r} does not exist, not rsyncing it'.format(src))
         return
 
-    cmd = ['rsync', '-a']
+    cmd = ['rsync', '-ac']
 
-    for exclude in excludes:
-        cmd.append('--exclude={}'.format(exclude))
+    if excludes:
+        for exclude in excludes:
+            cmd.append('--exclude={}'.format(exclude))
 
     cmd += [src, dest]
     ctx.run(cmdline(cmd))

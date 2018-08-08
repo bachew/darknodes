@@ -9,7 +9,7 @@ modules = [osp.splitext(osp.basename(path))[0]
            for path in glob(osp.join(proj_dir, 'src/*.py'))]
 setup(
     name='inkbot',
-    version='0.0.1',
+    version='0.0.2',
     description='Invoke tasks and CLI to backup and restore darknodes',
     license='MIT',
     author='Chew Boon Aik',
