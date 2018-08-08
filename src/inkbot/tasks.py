@@ -11,6 +11,7 @@ import tempfile
 
 HOME_DIR = osp.expanduser('~')
 HOME_DIR_PLACEHOLDER = '{{ INKBOT_HOME }}'
+# TODO: DARKNODE_DIR = '~/.darknode'
 
 
 @task
@@ -28,6 +29,23 @@ def install_darknode_cli(ctx, update=False):
 
 def darknode_bin(name='darknode'):
     return osp.join(osp.expanduser('~/.darknode/bin'), name)
+
+
+# TODO:
+# @task
+def add(ctx, network, provider, region, instance_type, suffix=None):
+    '''
+    Add a new darknode with name based on parameters
+    '''
+    pass
+    # params = [network, provider, region, instance_type]
+    # if suffix: params.append(suffix)
+    # name = '-'.join(params)
+
+
+# TODO: should have a task for user to set AWS and DO tokens so we can store
+# them in ~/.inkbot/tokens because we should not expect them to be in
+# ~/.aws/credentials and ~/.config/doctl/config.yaml
 
 
 @task
