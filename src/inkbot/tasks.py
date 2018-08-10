@@ -7,6 +7,7 @@ from subprocess import list2cmdline as cmdline
 import json
 import os
 import re
+import sys
 import tempfile
 
 
@@ -30,12 +31,9 @@ def install_darknode_cli(ctx, update=False):
 
 
 def darknode_bin(name='darknode'):
+    # TODO: only the bin name if '{{ DARKNODE_DIR }}/bin' already in $PATH
     return osp.join(DARKNODE_DIR, 'bin', name)
 
-
-# TODO: should have a task for user to set AWS and DO tokens so we can store
-# them in ~/.inkbot/tokens because we should not expect them to be in
-# ~/.aws/credentials and ~/.config/doctl/config.yaml
 
 @task
 def set_aws_keys(ctx):
@@ -43,35 +41,111 @@ def set_aws_keys(ctx):
     Set AWS access key and secret key that will be used by add command to add darknode
     '''
     dct = {
-        'access_key': get_input('AWS access key: '),
-        'secret_key': get_input('AWS secret key: ')
+        'accessKey': get_input('AWS access key: '),
+        'secretKey': get_input('AWS secret key: ')
     }
-    make_inkbot_dir(ctx)
+    write_json_file(osp.join(INKBOT_DIR, 'aws.json'), dct)
 
-    with open(osp.join(INKBOT_DIR, 'aws.json'), 'w') as fobj:
-        fobj.write(to_json(dct))
+
+@task
+def aws_access_key(ctx):
+    '''
+    Print AWS access key
+    '''
+    print(read_aws_keys()[0])
+
+
+@task
+def aws_secret_key(ctx):
+    '''
+    Print AWS secret key
+    '''
+    print(read_aws_keys()[1])
+
+
+def read_aws_keys():
+    try:
+        config = read_json_file(osp.join(INKBOT_DIR, 'aws.json'))
+    except FileNotFoundError:
+        error_exit("AWS keys not found, please run 'inkbot set-aws-keys' to set them")
+
+    access_key = config.get('accessKey')
+
+    if not access_key:
+        error_exit("AWS access key not found, please run 'inkbot set-aws-keys' to set it")
+
+    secret_key = config.get('secretKey')
+
+    if not secret_key:
+        error_exit("AWS secret key not found, please run 'inkbot set-aws-keys' to set it")
+
+    return access_key, secret_key
+
+
+def write_json_file(filename, obj):
+    print('Writing to {!r}'.format(filename))
+    text = json.dumps(obj, indent=2, sort_keys=True) + '\n'
+
+    try:
+        os.makedirs(osp.dirname(filename))
+    except FileExistsError:
+        pass
+
+    with open(filename, 'w') as fobj:
+        fobj.write(text)
+
+
+def read_json_file(filename):
+    with open(filename) as fobj:
+        text = fobj.read().strip()
+
+    try:
+        config = json.loads(text)
+    except ValueError:
+        error_exit('Invalid json config {!r}, root must be an object'.format(filename))
+
+    return config
+
+
+def error_exit(message):
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
 
 
 @task
 def set_do_token(ctx):
     '''
-    Set Digital Ocean API token that will be used by add command to add darknode
+    Set Digital Ocean token that will be used by add command to add darknode
     '''
     dct = {
-        'token': get_input('DO token: ')
+        'token': get_input('Digital Ocean token: ')
     }
-    make_inkbot_dir(ctx)
+    write_json_file(osp.join(INKBOT_DIR, 'do.json'), dct)
 
-    with open(osp.join(INKBOT_DIR, 'do.json'), 'w') as fobj:
-        fobj.write(to_json(dct))
+
+@task
+def do_token(ctx):
+    '''
+    Print Digital Ocean token
+    '''
+    def error():
+        error_exit("DO token not found, please run 'inkbot set-do-token' to set it")
+
+    try:
+        config = read_json_file(osp.join(INKBOT_DIR, 'do.json'))
+    except FileNotFoundError:
+        error()
+
+    token = config.get('token')
+
+    if not token:
+        error()
+
+    print(token)
 
 
 def make_inkbot_dir(ctx):
     ctx.run(cmdline(['mkdir', '-p', INKBOT_DIR]), echo=False)
-
-
-def to_json(obj):
-    return json.dumps(obj, indent=2, sort_keys=True)
 
 
 def get_input(prompt):
@@ -86,6 +160,7 @@ def get_input(prompt):
     return line
 
 
+# TODO: is it better to split into add_aws_node() and add_do_node()?
 @task
 def add(ctx, network, provider, region, tag=None, spec=None):
     '''
@@ -107,43 +182,30 @@ def add(ctx, network, provider, region, tag=None, spec=None):
         '--network', network
     ]
 
-    with new_temp_dir(ctx) as temp_dir:
-        if provider == 'aws':
-            aws_access_key_file, aws_secret_key_file = get_aws_key_files(temp_dir)
-            cmd += [
-                '--aws',
-                '--aws-region', region,
-                '--aws-access-key', '$(cat {!r})'.format(aws_access_key_file),
-                '--aws-secret-key', '$(cat {!r})'.format(aws_secret_key_file),
-            ]
+    if provider == 'aws':
+        cmd += [
+            '--aws',
+            '--aws-region', region,
+            '--aws-access-key', '$(inkbot aws-access-key)',
+            '--aws-secret-key', '$(inkbot aws-secret-key)',
+        ]
 
-            if spec:
-                cmd += ['--aws-instance', spec]
-        elif provider == 'do':
-            do_token_file = get_do_token_file(temp_dir)
-            cmd += [
-                '--do',
-                '--do-region', region,
-                '--do-token', '$(cat {!r})'.format(do_token_file),
-            ]
+        if spec:
+            cmd += ['--aws-instance', spec]
+    elif provider == 'do':
+        cmd += [
+            '--do',
+            '--do-region', region,
+            '--do-token', '$(inkbot do-token)',
+        ]
 
-            if spec:
-                cmd += ['--do-droplet', spec]
-        else:
-            raise ValueError("Provider must be either 'aws' or 'do'")
+        if spec:
+            cmd += ['--do-droplet', spec]
+    else:
+        raise ValueError("Provider must be either 'aws' or 'do'")
 
-        install_darknode_cli(ctx)
-        ctx.run(cmdline(cmd))
-
-
-def get_aws_key_files(temp_dir):
-    # TODO
-    return osp.join(temp_dir, 'aws-access-key'), osp.join(temp_dir, 'aws-secret-key')
-
-
-def get_do_token_file(temp_dir):
-    # TODO
-    return osp.join(temp_dir, 'do-token')
+    install_darknode_cli(ctx)
+    ctx.run(cmdline(cmd))
 
 
 @task
