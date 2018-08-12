@@ -14,7 +14,9 @@ import tempfile
 HOME_DIR = osp.expanduser('~')
 HOME_DIR_PLACEHOLDER = '{{ INKBOT_HOME }}'
 DARKNODE_DIR = osp.join(HOME_DIR, '.darknode')
+DARKNODE_BIN_DIR = osp.join(DARKNODE_DIR, 'bin')
 INKBOT_DIR = osp.join(DARKNODE_DIR, 'inkbot')
+_darknode_in_path = None
 
 
 @task
@@ -22,7 +24,7 @@ def install_darknode_cli(ctx, update=False):
     '''
     Install darknode-cli if not already installed
     '''
-    if not osp.exists(darknode_bin()):
+    if not osp.exists(DARKNODE_BIN_DIR):
         ctx.run('curl https://darknode.republicprotocol.com/install.sh -sSf | sh')
         return
 
@@ -31,8 +33,21 @@ def install_darknode_cli(ctx, update=False):
 
 
 def darknode_bin(name='darknode'):
-    # TODO: only the bin name if '{{ DARKNODE_DIR }}/bin' already in $PATH
-    return osp.join(DARKNODE_DIR, 'bin', name)
+    if darknode_in_path():
+        return name
+
+    return osp.join(DARKNODE_BIN_DIR, name)
+
+
+def darknode_in_path():
+    global _darknode_in_path
+
+    if _darknode_in_path is None:
+        paths = os.environ['PATH'].split(os.pathsep)
+        bin_dir = osp.join(DARKNODE_DIR, 'bin')
+        _darknode_in_path = bin_dir in paths
+
+    return _darknode_in_path
 
 
 @task
