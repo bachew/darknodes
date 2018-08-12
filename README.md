@@ -37,7 +37,7 @@ Enter passphrase: ******
 Repeat passphrase: ******
 ```
 
-It basically archive `~/.darknode` without `.terraform` and binary files and encrypts it using GnuPG. You can check the content:
+It archives `~/.darknode` without `.terraform` and binary files and encrypts it using GnuPG. You can inspect the backup file content:
 
 ```console
 $ inkbot list-backup darknodes.tgz.gpg
@@ -85,3 +85,41 @@ Digital Ocean token: ******
 ```
 
 It writes the token to `~/.darknode/inkbot.do.json` for easy backup.
+
+
+## Development
+
+To develop Inkbot locally, clone the repo and initialize it:
+
+```console
+git clone git@github.com:bachew/inkbot.git
+cd inkbot
+python3 init.py
+```
+
+
+### Testing
+
+For testing update set a test directory as home directory in `src/inkbot/tasks.py`:
+
+```python
+# HOME_DIR = osp.expanduser('~')
+HOME_DIR = osp.expanduser('~/inkbot-test')
+```
+
+And copy `~/.darknode` there as well:
+
+```console
+$ cp -r ~/.darknode ~/inkbot-test
+```
+
+Inkbot will then just backup from and restore to `~/inkbot-test`.
+
+
+### PyPI
+
+To build and deploy to PyPI:
+
+```console
+$ inv build deploy
+```
