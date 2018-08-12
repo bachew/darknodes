@@ -2,8 +2,9 @@
 
 Inkbot is a wrapper around [darknode-cli](https://github.com/republicprotocol/darknode-cli) to make it easier to backup and restore darknodes configuration and credentials.
 
-!!! warning
-    Inkbot is experimental, use at your own risk. Also darknode-cli is under active development, please check the status before using Inkbot, you might not need this anymore.
+<p class='warning'>
+Inkbot is experimental, use at your own risk. Also darknode-cli is under active development, please check the status before using Inkbot, you might not need this anymore.
+</p>
 
 
 ## Setup
@@ -14,7 +15,7 @@ To install Inkbot:
 $ pip install --user inkbot
 ```
 
-Inkbot **automatically installs darknode-cli** on demand, but you can install it explicityly:
+Inkbot automatically installs darknode-cli when needed, but you can install it explicitly:
 
 ```console
 $ inkbot install-darknode-cli
@@ -72,7 +73,12 @@ AWS access key: ******
 AWS secret key: ******
 ```
 
-It writes the keys to `~/.darknode/inkbot/aws.json` for easy backup.
+It writes the keys to `~/.darknode/inkbot/aws.json` for easy backup. You can print out the keys:
+
+```console
+$ inkbot aws-access-key
+$ inkbot aws-secret-key
+```
 
 
 ## Digital Ocean
@@ -84,7 +90,32 @@ $ inkbot set-do-token
 Digital Ocean token: ******
 ```
 
-It writes the token to `~/.darknode/inkbot.do.json` for easy backup.
+It writes the token to `~/.darknode/inkbot.do.json` for easy backup. You can print out the token:
+
+```console
+$ inkbot do-token
+```
+
+
+## Adding a new darknode
+
+You can add a new darknode using the set AWS and DO credentials with `inkbot add-aws-node` or `inkbot add-do-node`:
+
+```console
+$ inkbot add-aws-node NAME
+$ inkbot add-do-node NAME
+```
+
+Thse commands just pass through the options to `darknode up`, see `inkbot -h add-aws-node` for list of options. To just get the final `darknode up` command, use `--print-command` option:
+
+```console
+$ inkbot add-aws-node --print-command NAME
+darknode up --name NAME --aws --aws-access-key "$(inkbot aws-access-key)" --aws-secret-key "$(inkbot aws-secret-key)"
+$ inkbot add-do-node --print-command NAME
+darknode up --name NAME --do --do-token "$(inkbot do-token)"
+```
+
+Nothing extraordinary, just a convenient way to pass credentials without having it in command history.
 
 
 ## Development
@@ -92,9 +123,9 @@ It writes the token to `~/.darknode/inkbot.do.json` for easy backup.
 To develop Inkbot locally, clone the repo and initialize it:
 
 ```console
-git clone git@github.com:bachew/inkbot.git
-cd inkbot
-python3 init.py
+$ git clone git@github.com:bachew/inkbot.git
+$ cd inkbot
+$ python3 init.py
 ```
 
 
