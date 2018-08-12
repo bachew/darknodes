@@ -12,6 +12,7 @@ def init(ctx):
 
 @task
 def build(ctx):
+    ctx.run('rm -rf dist')
     ctx.run('python setup.py build bdist_wheel')
 
 

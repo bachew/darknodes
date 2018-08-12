@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from glob import glob
 from invoke import task
 from os import path as osp
-from subprocess import list2cmdline as cmdline
+from subprocess import list2cmdline
 import json
 import os
 import re
@@ -53,7 +53,7 @@ def darknode_in_path():
 @task
 def set_aws_keys(ctx):
     '''
-    Set AWS access key and secret key that will be used by add command to add darknode
+    Set AWS access key and secret key for adding new darknodes
     '''
     dct = {
         'accessKey': get_input('AWS access key: '),
@@ -65,7 +65,7 @@ def set_aws_keys(ctx):
 @task
 def aws_access_key(ctx):
     '''
-    Print AWS access key
+    Print AWS access key set by 'inkbot set-aws-keys'
     '''
     print(read_aws_keys()[0])
 
@@ -73,7 +73,7 @@ def aws_access_key(ctx):
 @task
 def aws_secret_key(ctx):
     '''
-    Print AWS secret key
+    Print AWS secret key set by 'inkbot set-aws-keys'
     '''
     print(read_aws_keys()[1])
 
@@ -130,7 +130,7 @@ def error_exit(message):
 @task
 def set_do_token(ctx):
     '''
-    Set Digital Ocean token that will be used by add command to add darknode
+    Set Digital Ocean token for adding new darknodes
     '''
     dct = {
         'token': get_input('Digital Ocean token: ')
@@ -141,7 +141,7 @@ def set_do_token(ctx):
 @task
 def do_token(ctx):
     '''
-    Print Digital Ocean token
+    Print Digital Ocean token set by 'inkbot set-do-token'
     '''
     def error():
         error_exit("DO token not found, please run 'inkbot set-do-token' to set it")
@@ -160,7 +160,7 @@ def do_token(ctx):
 
 
 def make_inkbot_dir(ctx):
-    ctx.run(cmdline(['mkdir', '-p', INKBOT_DIR]), echo=False)
+    ctx.run(list2cmdline(['mkdir', '-p', INKBOT_DIR]), echo=False)
 
 
 def get_input(prompt):
@@ -175,52 +175,71 @@ def get_input(prompt):
     return line
 
 
-# TODO: is it better to split into add_aws_node() and add_do_node()?
 @task
-def add(ctx, network, provider, region, tag=None, spec=None):
+def add_aws_node(ctx, name, print_command=False, network=None, region=None, instance=None):
     '''
-    Add a new darknode with name based on parameters
+    Add a AWS darknode using credentials set by 'inkbot set-aws-keys'
     '''
-    if network.endswith('net'):
-        short_network = network[:-3]
-    else:
-        short_network = network
-
-    params = [short_network, provider, region]
-
-    if tag:
-        params.append(tag)
-
     cmd = [
         darknode_bin(), 'up',
-        '--name', '-'.join(params),
-        '--network', network
+        '--name', name,
     ]
 
-    if provider == 'aws':
-        cmd += [
-            '--aws',
-            '--aws-region', region,
-            '--aws-access-key', '$(inkbot aws-access-key)',
-            '--aws-secret-key', '$(inkbot aws-secret-key)',
-        ]
+    if network:
+        cmd += ['--network', network]
 
-        if spec:
-            cmd += ['--aws-instance', spec]
-    elif provider == 'do':
-        cmd += [
-            '--do',
-            '--do-region', region,
-            '--do-token', '$(inkbot do-token)',
-        ]
+    cmd += [
+        '--aws',
+        '--aws-access-key', '$(inkbot aws-access-key)',
+        '--aws-secret-key', '$(inkbot aws-secret-key)',
+    ]
 
-        if spec:
-            cmd += ['--do-droplet', spec]
+    if region:
+        cmd += ['--aws-region', region]
+
+    if instance:
+        cmd += ['--aws-instance', instance]
+
+    cmdline = list2cmdline(cmd)
+
+    if print_command:
+        print(cmdline)
     else:
-        raise ValueError("Provider must be either 'aws' or 'do'")
+        install_darknode_cli(ctx)
+        ctx.run(cmdline)
 
-    install_darknode_cli(ctx)
-    ctx.run(cmdline(cmd))
+
+@task
+def add_do_node(ctx, name, print_command=False, network=None, region=None, droplet=None):
+    '''
+    Add a Digital Ocean darknode using credentials set by 'inkbot set-do-token'
+    '''
+    cmd = [
+        darknode_bin(), 'up',
+        '--name', name,
+    ]
+
+    if network:
+        cmd += ['--network', network]
+
+    cmd += [
+        '--do',
+        '--do-token', '$(inkbot do-token)',
+    ]
+
+    if region:
+        cmd += ['--do-region', region]
+
+    if droplet:
+        cmd += ['--do-droplet', droplet]
+
+    cmdline = list2cmdline(cmd)
+
+    if print_command:
+        print(cmdline)
+    else:
+        install_darknode_cli(ctx)
+        ctx.run(cmdline)
 
 
 @task
@@ -237,16 +256,10 @@ def backup(ctx, backup_file):
             '/darknode-setup',
             '/gen-config',
         ]
-        rsync(ctx, DARKNODE_DIR + '/', osp.join(backup_dir, 'darknode/'), excludes)
+        rsync(ctx, DARKNODE_DIR + '/', osp.join(backup_dir), excludes)
 
         search_replace_tf(osp.join(backup_dir, 'darknode'),
                           re.escape(HOME_DIR), HOME_DIR_PLACEHOLDER)
-
-        excludes = [
-            '/cli',
-            'config',
-        ]
-        rsync(ctx, '~/.aws/', osp.join(backup_dir, 'aws/'), excludes)
 
         archive_encrypt(ctx, backup_dir, backup_file)
 
@@ -282,8 +295,7 @@ def restore(ctx, backup_file):
         search_replace_tf(osp.join(backup_dir, 'darknode'),
                           re.escape(HOME_DIR_PLACEHOLDER), HOME_DIR)
 
-        rsync(ctx, osp.join(backup_dir, 'darknode/'), DARKNODE_DIR + '/')
-        rsync(ctx, osp.join(backup_dir, 'aws/'), '~/.aws')
+        rsync(ctx, osp.join(backup_dir), DARKNODE_DIR + '/')
 
     terraform_init(ctx, DARKNODE_DIR)
 
@@ -297,7 +309,7 @@ def restore(ctx, backup_file):
 def terraform_init(ctx, dirname):
     if not osp.exists(osp.join(dirname, '.terraform')) and glob(osp.join(dirname, '*.tf')):
         with ctx.cd(dirname):
-            ctx.run(cmdline([darknode_bin('terraform'), 'init']))
+            ctx.run(list2cmdline([darknode_bin('terraform'), 'init']))
 
 
 @contextmanager
@@ -309,7 +321,7 @@ def new_temp_dir(ctx):
     try:
         yield backup_dir
     finally:
-        ctx.run(cmdline(['rm', '-rf', backup_dir]))
+        ctx.run(list2cmdline(['rm', '-rf', backup_dir]))
 
 
 def rsync(ctx, src, dest, excludes=None):
@@ -327,7 +339,7 @@ def rsync(ctx, src, dest, excludes=None):
             cmd.append('--exclude={}'.format(exclude))
 
     cmd += [src, dest]
-    ctx.run(cmdline(cmd))
+    ctx.run(list2cmdline(cmd))
 
 
 @task
@@ -339,24 +351,38 @@ def archive_encrypt(ctx, src_dir, dest_file):
         archive_file = osp.abspath(osp.join(temp_dir, osp.basename(dest_file) + '.tar'))
 
         with ctx.cd(src_dir):
-            ctx.run(cmdline(['tar', '-czf', archive_file, '*']))
+            ctx.run(list2cmdline(['tar', '-czf', archive_file, '*']))
 
         encrypt(ctx, archive_file, dest_file)
 
 
 @task
-def decrypt_extract(ctx, src_file, dest_dir):
+def decrypt_extract(ctx, backup_file, dest_dir):
     '''
-    Decrypt <src-file> to a tar file and extract it to <dest-dir>
+    Decrypt <backup-file> to a tar file and extract it to <dest-dir>
     '''
-    with new_temp_dir(ctx) as temp_dir:
-        archive_file = osp.abspath(osp.join(temp_dir, osp.basename(src_file) + '.tar'))
-        decrypt(ctx, src_file, archive_file)
-
+    with decrypted(ctx, backup_file) as archive_file:
         if not osp.exists(dest_dir):
-            ctx.run(cmdline(['mkdir', '-p', dest_dir]))
+            ctx.run(list2cmdline(['mkdir', '-p', dest_dir]))
 
-        ctx.run(cmdline(['tar', '-C', dest_dir, '-xzf', archive_file]))
+        ctx.run(list2cmdline(['tar', '-C', dest_dir, '-xzf', archive_file]))
+
+
+@task
+def list_backup(ctx, backup_file):
+    '''
+    List files inside <backup-file>
+    '''
+    with decrypted(ctx, backup_file) as archive_file:
+        ctx.run(list2cmdline(['tar', '-tvf', archive_file]))
+
+
+@contextmanager
+def decrypted(ctx, backup_file):
+    with new_temp_dir(ctx) as temp_dir:
+        archive_file = osp.abspath(osp.join(temp_dir, osp.basename(backup_file) + '.tgz'))
+        decrypt(ctx, backup_file, archive_file)
+        yield archive_file
 
 
 @task
@@ -364,7 +390,7 @@ def encrypt(ctx, plain_file, cipher_file):
     '''
     Encrypt <plain-file> to <cipher-file>
     '''
-    ctx.run(cmdline([
+    ctx.run(list2cmdline([
         'gpg', '--cipher-algo', 'AES256',
         '-c',
         '-o', cipher_file,
@@ -377,4 +403,4 @@ def decrypt(ctx, cipher_file, plain_file):
     '''
     Decrypt <cipher-file> to <plain-file>
     '''
-    ctx.run(cmdline(['gpg', '-o', plain_file, cipher_file]))
+    ctx.run(list2cmdline(['gpg', '-o', plain_file, cipher_file]))

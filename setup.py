@@ -10,7 +10,7 @@ modules = [osp.splitext(osp.basename(path))[0]
 setup(
     name='inkbot',
     version='0.0.2',
-    description='Invoke tasks and CLI to backup and restore darknodes',
+    description='Inkbot is a wrapper around darknode-cli to make it easier to backup and restore darknodes configuration and credentials',
     license='MIT',
     author='Chew Boon Aik',
     author_email='bachew@gmail.com',
