@@ -12,6 +12,7 @@ import tempfile
 
 
 HOME_DIR = osp.expanduser('~')
+HOME_DIR_PATTERN = re.escape(osp.dirname(HOME_DIR) + os.sep) + r'[^/]+'
 HOME_DIR_PLACEHOLDER = '{{ INKBOT_HOME }}'
 DARKNODE_DIR = osp.join(HOME_DIR, '.darknode')
 DARKNODE_BIN_DIR = osp.join(DARKNODE_DIR, 'bin')
@@ -256,11 +257,8 @@ def backup(ctx, backup_file):
             '/darknode-setup',
             '/gen-config',
         ]
-        rsync(ctx, DARKNODE_DIR + '/', osp.join(backup_dir), excludes)
-
-        search_replace_tf(osp.join(backup_dir, 'darknode'),
-                          re.escape(HOME_DIR), HOME_DIR_PLACEHOLDER)
-
+        rsync(ctx, DARKNODE_DIR, osp.join(backup_dir), excludes)
+        search_replace_tf(backup_dir, HOME_DIR_PATTERN, HOME_DIR_PLACEHOLDER)
         archive_encrypt(ctx, backup_dir, backup_file)
 
 
@@ -273,7 +271,7 @@ def search_replace_tf(dirname, pattern, repl):
 
 
 def search_replace(filename, pattern, repl):
-    print('Search and replace {!r}: {}/{}'.format(filename, pattern, repl))
+    print('Search and replace {!r}: {} -> {}'.format(filename, pattern, repl))
 
     with open(filename) as fobj:
         replaced = re.sub(pattern, repl, fobj.read())
@@ -291,11 +289,8 @@ def restore(ctx, backup_file):
 
     with new_temp_dir(ctx) as backup_dir:
         decrypt_extract(ctx, backup_file, backup_dir)
-
-        search_replace_tf(osp.join(backup_dir, 'darknode'),
-                          re.escape(HOME_DIR_PLACEHOLDER), HOME_DIR)
-
-        rsync(ctx, osp.join(backup_dir), DARKNODE_DIR + '/')
+        search_replace_tf(backup_dir, re.escape(HOME_DIR_PLACEHOLDER), HOME_DIR)
+        rsync(ctx, osp.join(backup_dir), DARKNODE_DIR)
 
     terraform_init(ctx, DARKNODE_DIR)
 
@@ -325,6 +320,9 @@ def new_temp_dir(ctx):
 
 
 def rsync(ctx, src, dest, excludes=None):
+    def end_slash(dirname):
+        return dirname if dirname.endswith('/') else dirname + '/'
+
     src = osp.expanduser(src)
     dest = osp.expanduser(dest)
 
@@ -332,28 +330,28 @@ def rsync(ctx, src, dest, excludes=None):
         print('{!r} does not exist, not rsyncing it'.format(src))
         return
 
-    cmd = ['rsync', '-ac']
+    cmd = ['rsync', '-avh']
 
     if excludes:
         for exclude in excludes:
             cmd.append('--exclude={}'.format(exclude))
 
-    cmd += [src, dest]
+    cmd += [end_slash(src), end_slash(dest)]
     ctx.run(list2cmdline(cmd))
 
 
 @task
-def archive_encrypt(ctx, src_dir, dest_file):
+def archive_encrypt(ctx, src_dir, backup_file):
     '''
-    Archive <src-dir> into tar file and encrypt it to <dest-file>
+    Archive <src-dir> into tar file and encrypt it to <backup-file>
     '''
     with new_temp_dir(ctx) as temp_dir:
-        archive_file = osp.abspath(osp.join(temp_dir, osp.basename(dest_file) + '.tar'))
+        archive_file = osp.abspath(osp.join(temp_dir, osp.basename(backup_file) + '.tgz'))
 
         with ctx.cd(src_dir):
             ctx.run(list2cmdline(['tar', '-czf', archive_file, '*']))
 
-        encrypt(ctx, archive_file, dest_file)
+        encrypt(ctx, archive_file, backup_file)
 
 
 @task
