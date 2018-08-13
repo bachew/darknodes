@@ -104,7 +104,7 @@ $ inkbot add-aws-node NAME
 $ inkbot add-do-node NAME
 ```
 
-Thse commands just pass through the options to `darknode up`, see `inkbot -h add-aws-node` for list of options. To just get the final `darknode up` command, use `--print-command` option:
+They basically just run `darknode up <options>` in the end, to just see the darknode command, use `--print-command` option:
 
 ```console
 $ inkbot add-aws-node --print-command NAME
@@ -124,6 +124,14 @@ To develop Inkbot locally, clone the repo and initialize it:
 $ git clone git@github.com:bachew/inkbot.git
 $ cd inkbot
 $ python3 init.py
+```
+
+You can then activate the Python virtualenv and run inkbot command:
+
+```console
+$ pipenv shell
+$ whereis inkbot
+$ inkbot --version
 ```
 
 
