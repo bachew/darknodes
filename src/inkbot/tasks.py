@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from contextlib import contextmanager
 from glob import glob
-from invoke import task
+from invoke import Failure, task
 from os import path as osp
 from subprocess import list2cmdline
 import json
@@ -11,12 +11,14 @@ import sys
 import tempfile
 
 
-HOME_DIR = osp.expanduser('~')
-HOME_DIR_PATTERN = re.escape(osp.dirname(HOME_DIR) + os.sep) + r'[^/]+'
-HOME_DIR_PLACEHOLDER = '{{ INKBOT_HOME }}'
-DARKNODE_DIR = osp.join(HOME_DIR, '.darknode')
-DARKNODE_BIN_DIR = osp.join(DARKNODE_DIR, 'bin')
-INKBOT_DIR = osp.join(DARKNODE_DIR, 'inkbot')
+home_dir = osp.expanduser('~')
+real_darknode_dir = osp.join(home_dir, '.darknode')
+test_darknode_dir = real_darknode_dir + '-test'
+test = False  # set to True to darknode dir in ~/.darknode-test
+darknode_dir = test_darknode_dir if test else real_darknode_dir
+darknode_dir_var = '{{ darknode_dir }}'
+darknode_bin_dir = osp.join(darknode_dir, 'bin')
+inkbot_dir = osp.join(darknode_dir, 'inkbot')
 _darknode_in_path = None
 
 
@@ -25,19 +27,21 @@ def install_darknode_cli(ctx, update=False):
     '''
     Install darknode-cli if not already installed
     '''
-    if not osp.exists(DARKNODE_BIN_DIR):
+    if osp.exists(osp.join(real_darknode_dir, 'bin')):
+        if update:
+            ctx.run('curl https://darknode.republicprotocol.com/update.sh -sSf | sh')
+    else:
         ctx.run('curl https://darknode.republicprotocol.com/install.sh -sSf | sh')
-        return
 
-    if update:
-        ctx.run('curl https://darknode.republicprotocol.com/update.sh -sSf | sh')
+    if test:
+        rsync(ctx, real_darknode_dir, test_darknode_dir)
 
 
 def darknode_bin(name='darknode'):
     if darknode_in_path():
         return name
 
-    return osp.join(DARKNODE_BIN_DIR, name)
+    return osp.join(darknode_bin_dir, name)
 
 
 def darknode_in_path():
@@ -45,7 +49,7 @@ def darknode_in_path():
 
     if _darknode_in_path is None:
         paths = os.environ['PATH'].split(os.pathsep)
-        bin_dir = osp.join(DARKNODE_DIR, 'bin')
+        bin_dir = osp.join(darknode_dir, 'bin')
         _darknode_in_path = bin_dir in paths
 
     return _darknode_in_path
@@ -60,7 +64,7 @@ def set_aws_keys(ctx):
         'accessKey': get_input('AWS access key: '),
         'secretKey': get_input('AWS secret key: ')
     }
-    write_json_file(osp.join(INKBOT_DIR, 'aws.json'), dct)
+    write_json_file(osp.join(inkbot_dir, 'aws.json'), dct)
 
 
 @task
@@ -81,7 +85,7 @@ def aws_secret_key(ctx):
 
 def read_aws_keys():
     try:
-        config = read_json_file(osp.join(INKBOT_DIR, 'aws.json'))
+        config = read_json_file(osp.join(inkbot_dir, 'aws.json'))
     except FileNotFoundError:
         error_exit("AWS keys not found, please run 'inkbot set-aws-keys' to set them")
 
@@ -136,7 +140,7 @@ def set_do_token(ctx):
     dct = {
         'token': get_input('Digital Ocean token: ')
     }
-    write_json_file(osp.join(INKBOT_DIR, 'do.json'), dct)
+    write_json_file(osp.join(inkbot_dir, 'do.json'), dct)
 
 
 @task
@@ -148,7 +152,7 @@ def do_token(ctx):
         error_exit("DO token not found, please run 'inkbot set-do-token' to set it")
 
     try:
-        config = read_json_file(osp.join(INKBOT_DIR, 'do.json'))
+        config = read_json_file(osp.join(inkbot_dir, 'do.json'))
     except FileNotFoundError:
         error()
 
@@ -161,7 +165,7 @@ def do_token(ctx):
 
 
 def make_inkbot_dir(ctx):
-    ctx.run(list2cmdline(['mkdir', '-p', INKBOT_DIR]), echo=False)
+    ctx.run(list2cmdline(['mkdir', '-p', inkbot_dir]), echo=False)
 
 
 def get_input(prompt):
@@ -257,8 +261,8 @@ def backup(ctx, backup_file):
             '/darknode-setup',
             '/gen-config',
         ]
-        rsync(ctx, DARKNODE_DIR, osp.join(backup_dir), excludes)
-        search_replace_tf(backup_dir, HOME_DIR_PATTERN, HOME_DIR_PLACEHOLDER)
+        rsync(ctx, darknode_dir, osp.join(backup_dir), excludes)
+        search_replace_tf(backup_dir, re.escape(darknode_dir), darknode_dir_var)
         archive_encrypt(ctx, backup_dir, backup_file)
 
 
@@ -289,22 +293,33 @@ def restore(ctx, backup_file):
 
     with new_temp_dir(ctx) as backup_dir:
         decrypt_extract(ctx, backup_file, backup_dir)
-        search_replace_tf(backup_dir, re.escape(HOME_DIR_PLACEHOLDER), HOME_DIR)
-        rsync(ctx, osp.join(backup_dir), DARKNODE_DIR)
+        search_replace_tf(backup_dir, re.escape(darknode_dir_var), darknode_dir)
+        rsync(ctx, osp.join(backup_dir), darknode_dir)
 
-    terraform_init(ctx, DARKNODE_DIR)
+    try:
+        terraform_init(ctx)
+    except Failure:
+        print("'terraform init' failed, you can try again with 'inkbot terraform-init'")
+        raise
 
-    darknodes_dir = osp.join(DARKNODE_DIR, 'darknodes')
+
+@task
+def terraform_init(ctx):
+    '''
+    Run 'terraform init' in darknode directories
+    '''
+    def init(dirname):
+        if not osp.exists(osp.join(dirname, '.terraform')) and glob(osp.join(dirname, '*.tf')):
+            with ctx.cd(dirname):
+                ctx.run(list2cmdline([darknode_bin('terraform'), 'init']))
+
+    init(darknode_dir)
+
+    darknodes_dir = osp.join(darknode_dir, 'darknodes')
 
     if osp.exists(darknodes_dir):
         for name in os.listdir(darknodes_dir):
-            terraform_init(ctx, osp.join(darknodes_dir, name))
-
-
-def terraform_init(ctx, dirname):
-    if not osp.exists(osp.join(dirname, '.terraform')) and glob(osp.join(dirname, '*.tf')):
-        with ctx.cd(dirname):
-            ctx.run(list2cmdline([darknode_bin('terraform'), 'init']))
+            init(osp.join(darknodes_dir, name))
 
 
 @contextmanager

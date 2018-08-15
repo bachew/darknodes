@@ -137,12 +137,18 @@ $ inkbot --version
 
 ### Testing
 
-For testing update set a test directory as home directory in `src/inkbot/tasks.py`:
+For testing set `test = True` in `src/inkbot/tasks.py`:
 
 ```python
-# HOME_DIR = osp.expanduser('~')
-HOME_DIR = osp.expanduser('~/inkbot-test')
+...
+real_darknode_dir = osp.join(home_dir, '.darknode')
+test_darknode_dir = real_darknode_dir + '-test'
+test = True  # set to True to darknode dir in ~/.darknode-test
+darknode_dir = test_darknode_dir if test else real_darknode_dir
+...
 ```
+
+Then run `inkbot install-darknode-cli` to rsync `~/.darknode` to `~/.darknode-test`.
 
 And copy `~/.darknode` there as well:
 
