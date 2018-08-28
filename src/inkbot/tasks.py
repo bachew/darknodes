@@ -304,14 +304,15 @@ def restore(ctx, backup_file):
 
 
 @task
-def terraform_init(ctx):
+def terraform_init(ctx, force=False):
     '''
     Run 'terraform init' in darknode directories
     '''
     def init(dirname):
-        if not osp.exists(osp.join(dirname, '.terraform')) and glob(osp.join(dirname, '*.tf')):
-            with ctx.cd(dirname):
-                ctx.run(list2cmdline([darknode_bin('terraform'), 'init']))
+        if glob(osp.join(dirname, '*.tf')):
+            if force or not osp.exists(osp.join(dirname, '.terraform')):
+                with ctx.cd(dirname):
+                    ctx.run(list2cmdline([darknode_bin('terraform'), 'init']))
 
     init(darknode_dir)
 
