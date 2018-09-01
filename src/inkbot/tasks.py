@@ -4,9 +4,11 @@ from glob import glob
 from invoke import Failure, task
 from os import path as osp
 from subprocess import list2cmdline
+from textwrap import dedent
 import json
 import os
 import re
+import requests
 import sys
 import tempfile
 
@@ -148,6 +150,10 @@ def do_token(ctx):
     '''
     Print Digital Ocean token set by 'inkbot set-do-token'
     '''
+    print(get_do_token())
+
+
+def get_do_token():
     def error():
         error_exit("DO token not found, please run 'inkbot set-do-token' to set it")
 
@@ -161,7 +167,7 @@ def do_token(ctx):
     if not token:
         error()
 
-    print(token)
+    return token
 
 
 def make_inkbot_dir(ctx):
@@ -248,6 +254,32 @@ def add_do_node(ctx, name, print_command=False, network=None, region=None, dropl
 
 
 @task
+def do_regions(ctx, sizes=False):
+    '''
+    Print Digital Ocean available regions
+    '''
+    def format(r):
+        buf = [
+            r['slug'], ': ', r['name']
+        ]
+
+        if sizes:
+            buf.extend(['\n  sizes: ', ', '.join(r['sizes']), '\n'])
+
+        return ''.join(buf)
+
+    headers = {
+        'Authorization': 'Bearer {}'.format(get_do_token())
+    }
+    resp = requests.get('https://api.digitalocean.com/v2/regions', headers=headers)
+    regions = resp.json().get('regions', [])
+
+    for region in regions:
+        if region.get('available'):
+            print(format(region))
+
+
+@task
 def backup(ctx, backup_file):
     '''
     Backup darknodes and credentials to <backup-file>
@@ -294,13 +326,29 @@ def restore(ctx, backup_file):
     with new_temp_dir(ctx) as backup_dir:
         decrypt_extract(ctx, backup_file, backup_dir)
         search_replace_tf(backup_dir, re.escape(darknode_dir_var), darknode_dir)
-        rsync(ctx, osp.join(backup_dir), darknode_dir)
+        rsync(ctx, backup_dir, darknode_dir)
+        extra_nodes = compare_darknodes(backup_dir, darknode_dir)
 
     try:
         terraform_init(ctx)
     except Failure:
         print("'terraform init' failed, you can try again with 'inkbot terraform-init'")
         raise
+
+    if extra_nodes:
+        print(("Extra darknodes {!r} are left untouched,"
+               " to remove them you have to do it manually".format(extra_nodes)))
+
+
+def compare_darknodes(backup_dir, darknode_dir):
+    def nodes(dirname):
+        dirs = glob(osp.join(dirname, 'darknodes/*'))
+        return [osp.basename(d) for d in dirs]
+
+    backup_nodes = nodes(backup_dir)
+    current_nodes = nodes(darknode_dir)
+    extra_nodes = set(current_nodes).difference(backup_nodes)
+    return sorted(list(extra_nodes))
 
 
 @task

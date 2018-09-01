@@ -161,8 +161,8 @@ Inkbot will then just backup from and restore to `~/inkbot-test`.
 
 ### PyPI
 
-To build and deploy to PyPI:
+To build and upload to PyPI:
 
 ```console
-$ inv build deploy
+$ inv build upload
 ```

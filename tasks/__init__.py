@@ -12,12 +12,12 @@ def init(ctx):
 
 @task
 def build(ctx):
-    ctx.run('rm -rf dist')
+    ctx.run('rm -rf build dist')
     ctx.run('python setup.py build bdist_wheel')
 
 
 @task
-def deploy(ctx, repo_url=None, username=None, test_repo=False):
+def upload(ctx, repo_url=None, username=None, test_repo=False):
     cmd = ['twine', 'upload']
 
     if not repo_url:
