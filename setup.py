@@ -9,7 +9,7 @@ modules = [osp.splitext(osp.basename(path))[0]
            for path in glob(osp.join(proj_dir, 'src/*.py'))]
 setup(
     name='inkbot',
-    version='0.0.5',
+    version='0.0.6',
     description='Inkbot is a wrapper around darknode-cli to make it easier to backup and restore darknodes configuration and credentials',
     license='MIT',
     author='Chew Boon Aik',
