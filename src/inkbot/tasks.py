@@ -31,9 +31,9 @@ def install_darknode_cli(ctx, update=False):
     '''
     if osp.exists(osp.join(real_darknode_dir, 'bin')):
         if update:
-            ctx.run('curl https://darknode.republicprotocol.com/update.sh -sSf | sh')
+            ctx.run('curl https://releases.republicprotocol.com/darknode-cli/update.sh -sSf | sh')
     else:
-        ctx.run('curl https://darknode.republicprotocol.com/install.sh -sSf | sh')
+        ctx.run('curl https://releases.republicprotocol.com/darknode-cli/install.sh -sSf | sh')
 
     if test:
         rsync(ctx, real_darknode_dir, test_darknode_dir)
