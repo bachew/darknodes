@@ -1,8 +1,8 @@
 # Inkbot
 
-Inkbot is a wrapper around [darknode-cli](https://github.com/republicprotocol/darknode-cli) to make it easier to backup and restore darknodes configuration and credentials.
+**This repository is no longer maintained**
 
-**Inkbot is experimental, use at your own risk!**
+Inkbot is a wrapper around [darknode-cli](https://github.com/republicprotocol/darknode-cli) to make it easier to backup and restore darknodes configuration and credentials.
 
 
 ## Setup
